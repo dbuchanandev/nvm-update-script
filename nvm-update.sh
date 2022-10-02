@@ -44,6 +44,9 @@ else
    echo "$NVM_SH does not exist. Skipping file."
 fi
 
+# homebridge directory location for check below
+HB_DIR=$HOME'/.homebridge'
+
 # current local version
 CURRENT="$(nvm current)"
 # latest LTS
@@ -56,19 +59,28 @@ if [ "$CURRENT" == "$LTS" ]; then
     echo "No update needed."
     exit 0
 else
-    # run update
-    echo "Updating from $CURRENT to $LTS."
-    # Uncomment if Homebridge is installed
-    # sudo hb-service stop
-    # sudo hb-service uninstall
+    
+    # Handle Homebridge Installation
+    if [ -d "$HB_DIR" ]; then
+        echo "Homebridge installation found."
+        echo "Stopping Homebridge during update."
+        # Stop Homebridge during update
+        sudo hb-service stop
+        sudo hb-service uninstall
+    fi
     
     # update and reinstall packages
+    echo "Updating from $CURRENT to $LTS."
     nvm install "lts/*" --reinstall-packages-from=$CURRENT
     
-    # Uncomment if Homebridge is installed
-    # sudo hb-service rebuild --all
-    # sudo hb-service install
-    # sudo hb-service start
+    # Handle Homebridge Installation
+    if [ -d "$HB_DIR" ]; then
+        # Restart Homebrige after update
+        echo "Reinstalling Homebridge service."
+        sudo hb-service rebuild --all
+        sudo hb-service install
+        sudo hb-service start
+    fi
     
     # cleanup old install
     nvm uninstall $CURRENT
