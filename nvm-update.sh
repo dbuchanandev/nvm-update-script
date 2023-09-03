@@ -1,54 +1,21 @@
 #!/bin/sh
 
-# Check if common profile files exist and source them
-BASH_PROFILE=$HOME'/.bash_profile'
-if [ -f $BASH_PROFILE ]; then
-    echo "Sourcing $BASH_PROFILE."
-    . $BASH_PROFILE
-else
-   echo "$BASH_PROFILE does not exist. Skipping file."
-fi
-BASHRC=$HOME'/.bashrc'
-if [ -f $BASHRC ]; then
-    echo "Sourcing $BASHRC."
-    . $BASHRC
-else
-   echo "$BASHRC does not exist. Skipping file."
-fi
-ZSHRC=$HOME'/.zshrc'
-if [ -f $ZSHRC ]; then
-    echo "Sourcing $ZSHRC."
-    . $ZSHRC
-else
-   echo "$ZSHRC does not exist. Skipping file."
-fi
-ZPROFILE=$HOME'/.zprofile'
-if [ -f $ZPROFILE ]; then
-    echo "Sourcing $ZPROFILE."
-    . $ZPROFILE
-else
-   echo "$ZPROFILE does not exist. Skipping file."
-fi
-PROFILE=$HOME'/.profile'
-if [ -f $PROFILE ]; then
-    echo "Sourcing $PROFILE."
-    . $PROFILE
-else
-   echo "$PROFILE does not exist. Skipping file."
-fi
-NVM_SH=$HOME'/.nvm/nvm.sh'
-if [ -f $NVM_SH ]; then
-    echo "Sourcing $NVM_SH."
-    . $NVM_SH
-else
-   echo "$NVM_SH does not exist. Skipping file."
-fi
+# -----------------------
+# FUNCTIONS
+# -----------------------
 
-# homebridge directory location for check below
-HB_DIR=$HOME'/.homebridge'
+# Function to source a file if it exists
+source_if_exists() {
+    if [ -f "$1" ]; then
+        echo "Sourcing $1."
+        . "$1"
+    else
+        echo "$1 does not exist. Skipping file."
+    fi
+}
 
+# Function to reinstall Homebridge
 reinstall_homebridge() {
-    # Handle Homebridge Installation
     if [ -d "$HB_DIR" ]; then
         echo "Reinstalling Homebridge service."
         sudo hb-service rebuild --all
@@ -56,6 +23,46 @@ reinstall_homebridge() {
         sudo hb-service start
     fi
 }
+
+# Function to upgrade to the latest version of the current major version line
+upgrade_within_major() {
+    local CURRENT_MAJOR=$(echo "$1" | cut -d '.' -f 1)
+    local LATEST_WITHIN_MAJOR=$(nvm ls-remote | grep -o "${CURRENT_MAJOR}\.[0-9]*\.[0-9]*" | tail -n 1)
+
+    if [ "$LATEST_WITHIN_MAJOR" == "$CURRENT" ]; then
+        echo "You are already using the latest version within the $CURRENT_MAJOR.x.x line."
+        return 0
+    fi
+
+    echo "Upgrading to the latest $CURRENT_MAJOR.x.x: $LATEST_WITHIN_MAJOR."
+
+    nvm install "$LATEST_WITHIN_MAJOR"
+    node -v > /dev/null 2>&1
+    if [ $? -ne 0 ]; then
+        echo "Error with the new node version within the same major. Rolling back to $CURRENT."
+        nvm uninstall "$LATEST_WITHIN_MAJOR"
+        nvm use "$CURRENT"
+    else
+        echo "Migrating packages from $CURRENT to $LATEST_WITHIN_MAJOR."
+        nvm reinstall-packages "$CURRENT"
+        nvm uninstall "$CURRENT"
+    fi
+}
+
+# -----------------------
+# MAIN SCRIPT
+# -----------------------
+
+# Check if common profile files exist and source them
+source_if_exists "$HOME/.bash_profile"
+source_if_exists "$HOME/.bashrc"
+source_if_exists "$HOME/.zshrc"
+source_if_exists "$HOME/.zprofile"
+source_if_exists "$HOME/.profile"
+source_if_exists "$HOME/.nvm/nvm.sh"
+
+# homebridge directory location for check below
+HB_DIR="$HOME/.homebridge"
 
 # current local version
 CURRENT="$(nvm current)"
@@ -66,35 +73,29 @@ LTS="$(nvm version-remote --lts)"
 if [ "$CURRENT" == "$LTS" ]; then
     echo "Current version $CURRENT matches latest $LTS."
     echo "No update needed."
-    exit 0
 else
-    # Handle Homebridge Installation
     if [ -d "$HB_DIR" ]; then
         echo "Homebridge installation found."
         echo "Stopping Homebridge during update."
         sudo hb-service stop
         sudo hb-service uninstall
     fi
-    
-    # Only install new version without migrating packages
-    echo "Installing new version: $LTS."
+
+    echo "Installing new LTS version: $LTS."
     nvm install "lts/*"
-    
-    # Test the new node version by running a simple command
-    # 'node -v' should print out the version number of the node installation
     node -v > /dev/null 2>&1
     if [ $? -ne 0 ]; then
-        echo "Error with the new node version. Rolling back to $CURRENT."
-        nvm uninstall lts/*
-        nvm use $CURRENT
+        echo "Error with the new LTS node version. Rolling back to $CURRENT."
+        nvm uninstall "lts/*"
+        nvm use "$CURRENT"
+        # Perform upgrade within the same major version
+        upgrade_within_major "$CURRENT"
     else
-        # Now that new version is confirmed working, migrate packages
         echo "Migrating packages from $CURRENT to $LTS."
-        nvm reinstall-packages $CURRENT
-
-        # cleanup old install
-        nvm uninstall $CURRENT
+        nvm reinstall-packages "$CURRENT"
+        nvm uninstall "$CURRENT"
     fi
+
     reinstall_homebridge
 fi
 
